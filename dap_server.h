@@ -29,7 +29,7 @@
 
 #include "dap_cpu_monitor.h"
 #include "dap_client_remote.h"
-
+#include "dap_events.h"
 
 typedef enum dap_server_type {DAP_SERVER_TCP} dap_server_type_t;
 
@@ -37,9 +37,7 @@ struct dap_server;
 
 typedef void (*dap_server_callback_t) (struct dap_server *,void * arg); // Callback for specific server's operations
 
-typedef struct dap_thread{
-    pthread_t tid;
-} dap_thread_t;
+
 
 typedef struct dap_server{
     dap_server_type_t type; // Server's type
