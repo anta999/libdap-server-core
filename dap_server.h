@@ -29,7 +29,6 @@
 
 #include "dap_cpu_monitor.h"
 #include "dap_client_remote.h"
-#include "dap_events.h"
 
 typedef enum dap_server_type {DAP_SERVER_TCP} dap_server_type_t;
 
@@ -53,7 +52,6 @@ typedef struct dap_server{
 
     void * _inheritor;  // Pointer to the internal data, HTTP for example
 
-    dap_thread_t proc_thread;
     pthread_mutex_t mutex_on_hash;
 
     dap_cpu_stats_t cpu_stats;
