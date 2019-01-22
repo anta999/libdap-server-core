@@ -9,9 +9,8 @@ set(CMAKE_C_STANDARD 11)
 
 add_definitions ("-D_GNU_SOURCE")
 
-add_subdirectory(libdap)
-
-if(BUILD_DAP_CORE_SERVER_TESTS)
+if(NOT (${SUBMODULES_NO_BUILD} MATCHES ON))
+    add_subdirectory(libdap)
     enable_testing()
     add_subdirectory(test)
 endif()
