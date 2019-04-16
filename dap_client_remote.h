@@ -82,7 +82,10 @@ typedef struct dap_client_remote{
     int efd; 						// Epoll fd
 		int	tn;							// working thread index
 
-    struct dap_server * server;
+    time_t time_connection;
+    time_t last_time_active;
+
+    struct dap_server *server;
 
     UT_hash_handle hh;
 
@@ -95,7 +98,7 @@ typedef struct dap_client_remote{
 int dap_client_remote_init(void); //  Init clients module
 void dap_client_remote_deinit(void); // Deinit clients module
 
-dap_client_remote_t *dap_client_remote_create( dap_server_t *sh, int s, struct epoll_event *ppev, int tn, int efd );
+dap_client_remote_t *dap_client_remote_create( dap_server_t *sh, int s, int tn, int efd );
 dap_client_remote_t *dap_client_remote_find(int sock, struct dap_server * sh); // Find client by socket
 
 bool dap_client_remote_is_ready_to_read(dap_client_remote_t * sc);

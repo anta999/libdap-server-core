@@ -79,17 +79,18 @@ void _save_ip_and_port( dap_client_remote_t * cl )
  * @param s Client's socket
  * @return Pointer to the new list's node
  */
-dap_client_remote_t *dap_client_remote_create( dap_server_t *sh, int s, struct epoll_event *ppev, int tn, int efd )
+dap_client_remote_t *dap_client_remote_create( dap_server_t *sh, int s, int tn, int efd )
 {
 	dap_client_remote_t *dsc = DAP_NEW_Z( dap_client_remote_t );
+
 	dap_random_string_fill( dsc->id, CLIENT_ID_SIZE );
 	dsc->socket = s;
 	dsc->server = sh;
 	dsc->tn = tn;
 	dsc->efd = efd;
 
-	//	dsc->watcher_client = w_client;
-	memcpy( &dsc->pevent, ppev, sizeof(struct epoll_event) );
+	dsc->pevent.events = EPOLLIN | EPOLLOUT | EPOLLERR;
+	dsc->pevent.data.ptr = dsc;
 
 	dsc->_ready_to_read = true;
 	dsc->buf_out_offset = 0;
