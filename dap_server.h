@@ -25,6 +25,10 @@
 
 #include <stdint.h>
 #include <pthread.h>
+
+#include <sys/epoll.h>
+#include <sys/timerfd.h>
+
 #include "uthash.h"
 
 #include "dap_cpu_monitor.h"
@@ -35,8 +39,6 @@ typedef enum dap_server_type {DAP_SERVER_TCP} dap_server_type_t;
 struct dap_server;
 
 typedef void (*dap_server_callback_t) (struct dap_server *,void * arg); // Callback for specific server's operations
-
-
 
 typedef struct dap_server{
     dap_server_type_t type; // Server's type
@@ -66,7 +68,7 @@ typedef struct dap_server{
 
 } dap_server_t;
 
-int dap_server_init(size_t count_threads); // Init server module
+int dap_server_init( int count_threads); // Init server module
 void dap_server_deinit(void); // Deinit server module
 
 dap_server_t* dap_server_listen(const char * addr, uint16_t port, dap_server_type_t type);

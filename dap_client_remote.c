@@ -25,8 +25,11 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
-#include <ev.h>
+//#include <ev.h>
 #include <arpa/inet.h>
+
+#include <sys/epoll.h>
+#include <sys/timerfd.h>
 
 #include "dap_common.h"
 #include "dap_client_remote.h"
@@ -39,33 +42,35 @@
  * @brief dap_client_init Init clients module
  * @return Zero if ok others if no
  */
-int dap_client_remote_init()
+int dap_client_remote_init( )
 {
-    log_it(L_NOTICE,"Initialized socket client module");
-    return 0;
+	log_it( L_NOTICE, "Initialized socket client module" );
+
+	return 0;
 }
 
 /**
  * @brief dap_client_deinit Deinit clients module
  */
-void dap_client_remote_deinit()
+void dap_client_remote_deinit( )
 {
 
+	return;
 }
 
 /**
  * @brief _save_ip_and_port
  * @param cl
  */
-void _save_ip_and_port(dap_client_remote_t * cl)
+void _save_ip_and_port( dap_client_remote_t * cl )
 {
-    struct sockaddr_in ip_adr_get;
-    socklen_t ip_adr_len;
+	struct sockaddr_in ip_adr_get;
+	socklen_t ip_adr_len;
 
-    getpeername(cl->socket, &ip_adr_get, &ip_adr_len);
+	getpeername( cl->socket, (struct sockaddr * restrict)&ip_adr_get, &ip_adr_len );
 
-    cl->port = ntohs(ip_adr_get.sin_port);
-    strcpy(cl->s_ip, inet_ntoa(ip_adr_get.sin_addr));
+	cl->port = ntohs( ip_adr_get.sin_port );
+	strcpy( cl->s_ip, inet_ntoa(ip_adr_get.sin_addr) );
 }
 
 /**
@@ -74,49 +79,58 @@ void _save_ip_and_port(dap_client_remote_t * cl)
  * @param s Client's socket
  * @return Pointer to the new list's node
  */
-dap_client_remote_t * dap_client_remote_create(dap_server_t * sh, int s, ev_io* w_client)
+dap_client_remote_t *dap_client_remote_create( dap_server_t *sh, int s, struct epoll_event *ppev, int tn, int efd )
 {
-    pthread_mutex_lock(&sh->mutex_on_hash);
+	dap_client_remote_t *dsc = DAP_NEW_Z( dap_client_remote_t );
+	dap_random_string_fill( dsc->id, CLIENT_ID_SIZE );
+	dsc->socket = s;
+	dsc->server = sh;
+	dsc->tn = tn;
+	dsc->efd = efd;
 
-    dap_client_remote_t * dsc = DAP_NEW_Z(dap_client_remote_t);
-    dap_random_string_fill(dsc->id, CLIENT_ID_SIZE);
-    dsc->socket = s;
-    dsc->server = sh;
-    dsc->watcher_client = w_client;
-    dsc->_ready_to_read = true;
-    dsc->buf_out_offset = 0;
-    _save_ip_and_port(dsc);
+	//	dsc->watcher_client = w_client;
+	memcpy( &dsc->pevent, ppev, sizeof(struct epoll_event) );
 
-    HASH_ADD_INT(sh->clients, socket, dsc);
-    if(sh->client_new_callback)
-        sh->client_new_callback(dsc, NULL); // Init internal structure
+	dsc->_ready_to_read = true;
+	dsc->buf_out_offset = 0;
 
-    pthread_mutex_unlock(&sh->mutex_on_hash);
-    log_it(L_DEBUG, "Connected client ip: %s port %d", dsc->s_ip, dsc->port);
+	_save_ip_and_port( dsc );
+
+	pthread_mutex_lock( &sh->mutex_on_hash );
+	HASH_ADD_INT( sh->clients, socket, dsc );
+	pthread_mutex_unlock( &sh->mutex_on_hash );
+
+	if ( sh->client_new_callback )
+		sh->client_new_callback( dsc, NULL ); // Init internal structure
+
+	log_it(L_DEBUG, "Create remote client: ip: %s port %d", dsc->s_ip, dsc->port );
+
     //log_it(L_DEBUG, "Create new client. ID: %s", dsc->id);
-    return dsc;
+	return dsc;
 }
 
 /**
  * @brief safe_client_remove Removes the client from the list
  * @param sc Client instance
  */
-void dap_client_remote_remove(dap_client_remote_t *sc, struct dap_server * sh)
+void dap_client_remote_remove( dap_client_remote_t *sc, struct dap_server * sh )
 {
-    pthread_mutex_lock(&sh->mutex_on_hash);
+	log_it(L_DEBUG, "Client structure remove");
 
-    log_it(L_DEBUG, "Client structure remove");
-    HASH_DEL(sc->server->clients,sc);
+	pthread_mutex_lock( &sh->mutex_on_hash );
+	HASH_DEL( sc->server->clients, sc );
+	pthread_mutex_unlock( &sh->mutex_on_hash );
 
-    if(sc->server->client_delete_callback)
-        sc->server->client_delete_callback(sc,NULL); // Init internal structure
-    if(sc->_inheritor)
-        free(sc->_inheritor);
+	if( sc->server->client_delete_callback )
+		sc->server->client_delete_callback( sc, NULL ); // Init internal structure
 
-    if(sc->socket)
-        close(sc->socket);
-    free(sc);
-    pthread_mutex_unlock(&sh->mutex_on_hash);
+	if( sc->_inheritor )
+		free( sc->_inheritor );
+
+	if( sc->socket )
+		close( sc->socket );
+
+	free( sc );
 }
 
 /**
@@ -125,13 +139,15 @@ void dap_client_remote_remove(dap_client_remote_t *sc, struct dap_server * sh)
  * @param sh
  * @return
  */
-dap_client_remote_t * dap_client_remote_find(int sock, struct dap_server * sh)
+dap_client_remote_t *dap_client_remote_find( int sock, struct dap_server *sh )
 {
-    dap_client_remote_t * ret = NULL;
-    pthread_mutex_lock(&sh->mutex_on_hash);
-    HASH_FIND_INT(sh->clients, &sock, ret);
-    pthread_mutex_unlock(&sh->mutex_on_hash);
-    return ret;
+	dap_client_remote_t *ret = NULL;
+
+	pthread_mutex_lock( &sh->mutex_on_hash );
+	HASH_FIND_INT( sh->clients, &sock, ret );
+	pthread_mutex_unlock( &sh->mutex_on_hash );
+
+	return ret;
 }
 
 /**
@@ -139,20 +155,25 @@ dap_client_remote_t * dap_client_remote_find(int sock, struct dap_server * sh)
  * @param sc
  * @param isReady
  */
-void dap_client_remote_ready_to_read(dap_client_remote_t * sc,bool is_ready)
+void	dap_client_remote_ready_to_read( dap_client_remote_t *sc, bool is_ready )
 {
-    if(is_ready != sc->_ready_to_read) {
-        int events = 0;
-        sc->_ready_to_read=is_ready;
+	if( is_ready != sc->_ready_to_read ) {
 
-        if(sc->_ready_to_read)
-            events |= EV_READ;
+		int events = EPOLLERR;
+		sc->_ready_to_read = is_ready;
 
-        if(sc->_ready_to_write)
-            events |= EV_WRITE;
+		if( sc->_ready_to_read )
+			events |= EPOLLIN;
 
-        ev_io_set(sc->watcher_client, sc->socket, events );
-    }
+		if( sc->_ready_to_write )
+			events |= EPOLLOUT;
+
+		sc->pevent.events = events;
+
+		if( epoll_ctl(sc->efd, EPOLL_CTL_MOD, sc->socket, &sc->pevent) != 0 ) {
+		  log_it( L_ERROR, "epoll_ctl failed 000" );
+		}
+	}
 }
 
 /**
@@ -160,20 +181,25 @@ void dap_client_remote_ready_to_read(dap_client_remote_t * sc,bool is_ready)
  * @param sc
  * @param isReady
  */
-void dap_client_remote_ready_to_write(dap_client_remote_t * sc,bool is_ready)
+void	dap_client_remote_ready_to_write( dap_client_remote_t *sc, bool is_ready )
 {
-    if(is_ready != sc->_ready_to_write) {
-        int events = 0;
-        sc->_ready_to_write=is_ready;
+	if ( is_ready != sc->_ready_to_write ) {
 
-        if(sc->_ready_to_read)
-            events |= EV_READ;
+		int events = EPOLLERR;
+		sc->_ready_to_write = is_ready;
 
-        if(sc->_ready_to_write)
-            events |= EV_WRITE;
+		if ( sc->_ready_to_read )
+			events |= EPOLLIN;
 
-        ev_io_set(sc->watcher_client, sc->socket, events );
-    }
+		if ( sc->_ready_to_write )
+			events |= EPOLLOUT;
+
+		sc->pevent.events = events;
+
+		if( epoll_ctl(sc->efd, EPOLL_CTL_MOD, sc->socket, &sc->pevent) != 0 ) {
+		  log_it( L_ERROR, "epoll_ctl failed 001" );
+		}
+	}
 }
 
 /**
