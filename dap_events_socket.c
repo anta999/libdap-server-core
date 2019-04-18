@@ -110,8 +110,10 @@ dap_events_socket_t * dap_events_socket_wrap2(dap_server_t * a_server, struct da
     assert(a_events);
     assert(a_callbacks);
     assert(a_server);
+
     log_it(L_DEBUG,"Sap event socket wrapped around %d sock", a_sock);
     dap_events_socket_t * ret = DAP_NEW_Z(dap_events_socket_t);
+
     ret->socket = a_sock;
     ret->events = a_events;
     ret->callbacks = a_callbacks;
@@ -123,8 +125,10 @@ dap_events_socket_t * dap_events_socket_wrap2(dap_server_t * a_server, struct da
     ret->last_ping_request = time(NULL);
     HASH_ADD_INT(a_events->sockets, socket, ret);
     pthread_rwlock_unlock(&a_events->sockets_rwlock);
+
     if(a_callbacks->new_callback)
         a_callbacks->new_callback(ret,NULL); // Init internal structure
+
     return ret;
 }
 
@@ -137,9 +141,11 @@ dap_events_socket_t * dap_events_socket_wrap2(dap_server_t * a_server, struct da
 dap_events_socket_t * dap_events_socket_find(int sock, struct dap_events * a_events)
 {
     dap_events_socket_t * ret = NULL;
+
     pthread_rwlock_rdlock(&a_events->sockets_rwlock);
     HASH_FIND_INT(a_events->sockets, &sock, ret);
     pthread_rwlock_unlock(&a_events->sockets_rwlock);
+
     return ret;
 }
 
@@ -151,6 +157,7 @@ dap_events_socket_t * dap_events_socket_find(int sock, struct dap_events * a_eve
 void dap_events_socket_set_readable(dap_events_socket_t * sc,bool is_ready)
 {
     if(is_ready != sc->_ready_to_read){
+
         struct epoll_event ev={0};
         ev.events = EPOLLERR;
         sc->_ready_to_read=is_ready;
@@ -160,6 +167,7 @@ void dap_events_socket_set_readable(dap_events_socket_t * sc,bool is_ready)
             ev.events |= EPOLLOUT;
 
         ev.data.fd=sc->socket;
+
         if (epoll_ctl(sc->dap_worker->epoll_fd, EPOLL_CTL_MOD, sc->socket, &ev) == -1) {
             log_it(L_ERROR,"Can't update read client socket state in the epoll_fd");
         }else
@@ -175,20 +183,24 @@ void dap_events_socket_set_readable(dap_events_socket_t * sc,bool is_ready)
 void dap_events_socket_set_writable(dap_events_socket_t * sc,bool is_ready)
 {
     if(is_ready != sc->_ready_to_write){
+
         struct epoll_event ev={0};
         ev.events = EPOLLERR ;
+
         sc->_ready_to_write=is_ready;
+
         if(sc->_ready_to_read)
             ev.events |= EPOLLIN;
         if(sc->_ready_to_write)
             ev.events |= EPOLLOUT;
+
         ev.data.fd=sc->socket;
+
         if (epoll_ctl(sc->dap_worker->epoll_fd, EPOLL_CTL_MOD, sc->socket, &ev) == -1) {
             log_it(L_ERROR,"Can't update write client socket state in the epoll_fd");
         }else
             dap_events_thread_wake_up(&sc->events->proc_thread);
     }
-
 }
 
 
@@ -200,9 +212,11 @@ void dap_events_socket_delete(dap_events_socket_t *a_es, bool preserve_inheritor
 {
     if (a_es){
         log_it(L_DEBUG, "es is going to be removed from the lists and free the memory (0x%016X)", a_es );
+
         pthread_rwlock_wrlock(&a_es->events->sockets_rwlock);
         HASH_DEL(a_es->events->sockets, a_es);
         pthread_rwlock_unlock(&a_es->events->sockets_rwlock);
+
         log_it(L_DEBUG, "dap_events_socket wrapped around %d socket is removed", a_es->socket);
 
         if(a_es->callbacks->delete_callback)
@@ -216,7 +230,7 @@ void dap_events_socket_delete(dap_events_socket_t *a_es, bool preserve_inheritor
             close(a_es->socket);
         }
         free(a_es);
-	}
+  }
 }
 
 /**
@@ -294,7 +308,7 @@ void dap_events_socket_shrink_buf_in(dap_events_socket_t * cl, size_t shrink_siz
         memcpy(cl->buf_in,buf,buf_size);
         cl->buf_in_size=buf_size;
         if (buf)
-        	free(buf);
+          free(buf);
     }else{
         //log_it(WARNING,"Shrinking size of input buffer on amount bigger than actual buffer's size");
         cl->buf_in_size=0;

@@ -44,8 +44,6 @@
 #include <errno.h>
 #include <signal.h>
 
-
-
 #if 1
 #include <sys/timerfd.h>
 #elif defined(DAP_OS_ANDROID)
@@ -60,18 +58,19 @@
 #include "dap_common.h"
 #include "dap_events.h"
 
-
 typedef struct open_connection_info {
     dap_events_socket_t *es;
+    struct open_connection_info *prev;
     struct open_connection_info *next;
 } dap_events_socket_info_t;
 
 dap_events_socket_info_t **s_dap_events_sockets;
+
 static uint8_t s_threads_count = 1;
 static size_t s_connection_timeout = 600;
 
-dap_worker_t * s_workers = NULL;
-dap_thread_t * s_threads = NULL;
+dap_worker_t *s_workers = NULL;
+dap_thread_t *s_threads = NULL;
 
 #define LOG_TAG "dap_events"
 #define MAX_EPOLL_EVENTS 255
@@ -93,6 +92,7 @@ size_t s_get_cpu_count()
     return 1;
 #endif
 }
+
 /**
  * @brief sa_server_init Init server module
  * @arg a_threads_count  number of events processor workers in parallel threads
@@ -185,7 +185,6 @@ static bool dap_events_socket_info_remove(dap_events_socket_t* cl, uint8_t n_thr
     {
         if( el->es == cl )
         {
-            LL_DELETE(s_dap_events_sockets[n_thread], el);
             log_it(L_DEBUG, "Removed event socket from the thread's list");
             return true;
         }
@@ -235,6 +234,7 @@ static void* thread_worker_function(void *arg)
 {
     dap_worker_t* w = (dap_worker_t*) arg;
     dap_events_socket_t* cur;
+    time_t next_time_timeout_check = time( NULL ) + s_connection_timeout / 2;
 
 #ifndef NO_POSIX_SHED
     cpu_set_t mask;
@@ -253,47 +253,48 @@ static void* thread_worker_function(void *arg)
     memzero(&ev,sizeof(ev));
     memzero(&events,sizeof(events));
 #ifndef NO_TIMER
-    int timerfd;
-    if ((timerfd = timerfd_create(CLOCK_MONOTONIC, 0)) < 0)
-    {
-        log_it(L_CRITICAL, "Failed to create timer");
-        abort();
-    }
+//    int timerfd;
+//    if ((timerfd = timerfd_create(CLOCK_MONOTONIC, 0)) < 0)
+//    {
+//        log_it(L_CRITICAL, "Failed to create timer");
+//        abort();
+//    }
 #endif
 
-    struct itimerspec timerValue;
-    memzero(&timerValue, sizeof(timerValue));
+//    struct itimerspec timerValue;
+//    memzero(&timerValue, sizeof(timerValue));
 
-    timerValue.it_value.tv_sec = 10;
-    timerValue.it_value.tv_nsec = 0;
-    timerValue.it_interval.tv_sec = s_connection_timeout / 2;
-    timerValue.it_interval.tv_nsec = 0;
+//    timerValue.it_value.tv_sec = 10;
+//    timerValue.it_value.tv_nsec = 0;
+//    timerValue.it_interval.tv_sec = s_connection_timeout / 2;
+//    timerValue.it_interval.tv_nsec = 0;
 
 
 #ifndef NO_TIMER
-    ev.events = EPOLLIN;
-    ev.data.fd = timerfd;
-    epoll_ctl(w->epoll_fd, EPOLL_CTL_ADD, timerfd, &ev);
+//    ev.events = EPOLLIN;
+//    ev.data.fd = timerfd;
+//    epoll_ctl(w->epoll_fd, EPOLL_CTL_ADD, timerfd, &ev);
 
-    if (timerfd_settime(timerfd, 0, &timerValue, NULL) < 0) {
-        log_it(L_CRITICAL, "Could not start timer");
-        abort();
-    }
+//    if (timerfd_settime(timerfd, 0, &timerValue, NULL) < 0) {
+//        log_it(L_CRITICAL, "Could not start timer");
+//        abort();
+//    }
 #endif
 
     size_t total_sent; int bytes_sent;
-    while(1) {
-        int selected_sockets = epoll_wait(w->epoll_fd, events, MAX_EPOLL_EVENTS, -1);
+
+    while( 1 ) {
+
+        int selected_sockets = epoll_wait( w->epoll_fd, events, MAX_EPOLL_EVENTS, -1 );
+
+        if ( selected_sockets == -1 )
+          break;
+
+        time_t cur_time = time( NULL );
+
     //    log_it(INFO, "Epoll pwait trigered worker %d", w->number_worker);
+
         for(int n = 0; n < selected_sockets; n++) {
-#ifndef  NO_TIMER
-            if (events[n].data.fd == timerfd) {
-                static uint64_t val;
-                /* if we not reading data from socket, he triggered again */
-                read(events[n].data.fd, &val, 8);
-                s_socket_info_all_check_activity(w->number_thread, w->events);
-            } else
-#endif
             if (  ( cur = dap_events_socket_find(events[n].data.fd, w->events) ) != NULL  ) {
                 if( events[n].events & EPOLLERR ) {
                     log_it(L_ERROR,"Socket error: %s",strerror(errno));
@@ -375,15 +376,27 @@ static void* thread_worker_function(void *arg)
                     log_it(L_INFO, "Got signal to close from the client %s", cur->hostaddr);
                     dap_events_socket_remove_and_delete(cur);
                 }
-            }  else {
+            }
+            else {
                 log_it(L_ERROR,"Socket %d is not present in epoll set", events[n].data.fd);
                 ev.events = EPOLLIN | EPOLLOUT | EPOLLERR;
                 ev.data.fd=events[n].data.fd;
 
                 if (epoll_ctl(w->epoll_fd, EPOLL_CTL_DEL, events[n].data.fd, &ev) == -1)
                     log_it(L_ERROR,"Can't remove not presented socket from the epoll_fd");
-            }
+           }
         }
+
+#ifndef  NO_TIMER
+    if ( cur_time >= next_time_timeout_check ) {
+
+      s_socket_info_all_check_activity(w->number_thread, w->events);
+      next_time_timeout_check = cur_time + s_connection_timeout / 2;
+    }
+#endif
+
+//
+
     }
     return NULL;
 }
@@ -483,7 +496,6 @@ void dap_worker_add_events_socket(dap_events_socket_t * a_events_socket)
     ev.events = EPOLLIN | EPOLLERR | EPOLLOUT;
     ev.data.fd = a_events_socket->socket;
 
-
     pthread_mutex_lock(&l_worker->locker_on_count);
     l_worker->event_sockets_count++;
     pthread_mutex_unlock(&l_worker->locker_on_count);
@@ -491,11 +503,11 @@ void dap_worker_add_events_socket(dap_events_socket_t * a_events_socket)
     dap_events_socket_info_t * l_es_info = DAP_NEW_Z(dap_events_socket_info_t);
     l_es_info->es = a_events_socket;
     a_events_socket->dap_worker = l_worker;
+
     LL_APPEND(s_dap_events_sockets[l_worker->number_thread], l_es_info);
 
     if ( epoll_ctl(l_worker->epoll_fd, EPOLL_CTL_ADD, a_events_socket->socket, &ev) == 1 )
         log_it(L_CRITICAL,"Can't add event socket's handler to epoll_fd");
-
 }
 
 /**
@@ -504,7 +516,6 @@ void dap_worker_add_events_socket(dap_events_socket_t * a_events_socket)
  */
 void dap_events_socket_remove_and_delete(dap_events_socket_t* a_es)
 {
-
     struct epoll_event ev={0};
     ev.events = EPOLLIN | EPOLLOUT | EPOLLERR;
     ev.data.fd=a_es->socket;
@@ -520,7 +531,6 @@ void dap_events_socket_remove_and_delete(dap_events_socket_t* a_es)
 
     dap_events_socket_info_remove(a_es, a_es->dap_worker->number_thread);
     dap_events_socket_delete(a_es,true);
-
 }
 
 /**
