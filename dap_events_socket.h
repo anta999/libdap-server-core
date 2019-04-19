@@ -22,16 +22,21 @@
     along with any DAP based project.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 #include "uthash.h"
+
 struct dap_events;
 struct dap_events_socket;
 struct dap_worker;
+
 typedef struct dap_server dap_server_t;
 typedef void (*dap_events_socket_callback_t) (struct dap_events_socket *,void * arg); // Callback for specific client operations
-typedef struct dap_events_socket_callbacks{
+
+typedef struct dap_events_socket_callbacks {
+
     dap_events_socket_callback_t new_callback; // Create new client callback
     dap_events_socket_callback_t delete_callback; // Delete client callback
     dap_events_socket_callback_t read_callback; // Read function
@@ -40,67 +45,67 @@ typedef struct dap_events_socket_callbacks{
 
 } dap_events_socket_callbacks_t;
 
-
 #define DAP_EVENTS_SOCKET_BUF 100000
 
-typedef struct dap_events_socket{
-    int socket;
-    bool signal_close;
+typedef struct dap_events_socket {
 
-    bool _ready_to_write;
-    bool _ready_to_read;
+  int32_t socket;
 
-    uint32_t buf_out_zero_count;
-    union{
-        uint8_t buf_in[DAP_EVENTS_SOCKET_BUF+1]; // Internal buffer for input data
-        char buf_in_str[DAP_EVENTS_SOCKET_BUF+1];
-    };
-    size_t buf_in_size; // size of data that is in the input buffer
+  bool signal_close;
+  bool _ready_to_write;
+  bool _ready_to_read;
 
-    uint8_t buf_out[DAP_EVENTS_SOCKET_BUF+1]; // Internal buffer for output data
+  uint32_t buf_out_zero_count;
+  union{
+    uint8_t buf_in[DAP_EVENTS_SOCKET_BUF+1]; // Internal buffer for input data
+    char buf_in_str[DAP_EVENTS_SOCKET_BUF+1];
+  };
+  size_t buf_in_size; // size of data that is in the input buffer
 
-    char hostaddr[1024]; // Address
-    char service[128];
+  uint8_t buf_out[DAP_EVENTS_SOCKET_BUF+1]; // Internal buffer for output data
 
-    size_t buf_out_size; // size of data that is in the output buffer
+  char hostaddr[1024]; // Address
+  char service[128];
 
-    struct dap_events * events;
+  size_t buf_out_size; // size of data that is in the output buffer
 
-    struct dap_worker* dap_worker;
-    dap_events_socket_callbacks_t *callbacks;
+  struct dap_events *events;
+  struct dap_worker *dap_worker;
+  struct epoll_event ev;
 
-    time_t time_connection;
-    time_t last_ping_request;
-    bool is_pingable;
+  dap_events_socket_callbacks_t *callbacks;
 
-    UT_hash_handle hh;
+  time_t time_connection;
+  time_t last_time_active;
+  time_t last_ping_request;
+  bool is_pingable;
 
-    void * _inheritor; // Inheritor data to specific client type, usualy states for state machine
+  UT_hash_handle hh;
+  struct dap_events_socket *next, *prev;
+
+  void *_inheritor; // Inheritor data to specific client type, usualy states for state machine
+
 } dap_events_socket_t; // Node of bidirectional list of clients
 
+int32_t dap_events_socket_init( ); //  Init clients module
+void dap_events_socket_deinit( ); // Deinit clients module
 
+void dap_events_socket_create_after( dap_events_socket_t *a_es );
 
-int dap_events_socket_init(); //  Init clients module
-void dap_events_socket_deinit(); // Deinit clients module
+dap_events_socket_t *dap_events_socket_wrap_no_add( struct dap_events *a_events,
+                                            int32_t s, dap_events_socket_callbacks_t *a_callbacks ); // Create new client and add it to the list
 
-void dap_events_socket_create_after(dap_events_socket_t * a_es);
+dap_events_socket_t *dap_events_socket_find( int32_t sock, struct dap_events *sh ); // Find client by socket
 
-dap_events_socket_t * dap_events_socket_wrap_no_add(struct dap_events * a_events,
-                                            int s, dap_events_socket_callbacks_t * a_callbacks); // Create new client and add it to the list
+bool dap_events_socket_is_ready_to_read( dap_events_socket_t * sc );
+bool dap_events_socket_is_ready_to_write( dap_events_socket_t * sc );
+void dap_events_socket_set_readable( dap_events_socket_t * sc,bool is_ready );
+void dap_events_socket_set_writable( dap_events_socket_t * sc,bool is_ready );
 
+size_t dap_events_socket_write( dap_events_socket_t *sc, const void * data, size_t data_size );
+size_t dap_events_socket_write_f( dap_events_socket_t *sc, const char * format,... );
+size_t dap_events_socket_read( dap_events_socket_t *sc, void * data, size_t data_size );
 
-dap_events_socket_t * dap_events_socket_find(int sock, struct dap_events * sh); // Find client by socket
-
-bool dap_events_socket_is_ready_to_read(dap_events_socket_t * sc);
-bool dap_events_socket_is_ready_to_write(dap_events_socket_t * sc);
-void dap_events_socket_set_readable(dap_events_socket_t * sc,bool is_ready);
-void dap_events_socket_set_writable(dap_events_socket_t * sc,bool is_ready);
-
-size_t dap_events_socket_write(dap_events_socket_t *sc, const void * data, size_t data_size);
-size_t dap_events_socket_write_f(dap_events_socket_t *sc, const char * format,...);
-size_t dap_events_socket_read(dap_events_socket_t *sc, void * data, size_t data_size);
-
-void dap_events_socket_delete(dap_events_socket_t *sc,bool preserve_inheritor); // Removes the client from the list
-
-void dap_events_socket_shrink_buf_in(dap_events_socket_t * cl, size_t shrink_size);
+void dap_events_socket_delete( dap_events_socket_t *sc, bool preserve_inheritor ); // Removes the client from the list
+void dap_events_socket_shrink_buf_in( dap_events_socket_t *cl, size_t shrink_size );
 

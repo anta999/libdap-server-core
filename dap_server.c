@@ -18,36 +18,51 @@
     along with any DAP based project.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <string.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
-#include <stdint.h>
-#include <string.h>
-#include <time.h>
-#include <errno.h>
 
+//#include <errno.h>
 #include <signal.h>
-#include <netdb.h>
-#include <unistd.h>
-#include <fcntl.h>
+#include <stdint.h>
+#include <stdatomic.h>
 
+#ifndef _WIN32
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/select.h>
-
+#include <errno.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
+#else
+#undef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600
+#include <winsock2.h>
+#include <windows.h>
+#include <mswsock.h>
+#include <ws2tcpip.h>
+#include <io.h>
+#include "wrappers.h"
+#include <wepoll.h>
+#include "../pthread-win32/pthread.h"
 
-#include "utlist.h"
+#endif
 
-//#define NI_NUMERICHOST  1 /* Don't try to look up hostname.  */
-//#define NI_NUMERICSERV  2 /* Don't convert port number to name.  */
-//#define NI_NOFQDN       4 /* Only return nodename portion.  */
-//#define NI_NAMEREQD     8 /* Don't return numeric addresses.  */
-//#define NI_DGRAM       16 /* Look up UDP service rather than TCP.  */
+#if 0
+#define NI_NUMERICHOST  1 /* Don't try to look up hostname.  */
+#define NI_NUMERICSERV  2 /* Don't convert port number to name.  */
+#define NI_NOFQDN       4 /* Only return nodename portion.  */
+#define NI_NAMEREQD     8 /* Don't return numeric addresses.  */
+#define NI_DGRAM       16 /* Look up UDP service rather than TCP.  */
+#endif
 
 #include "dap_common.h"
 #include "dap_server.h"
@@ -113,7 +128,9 @@ int32_t dap_server_init( uint32_t count_threads )
 {
   dap_server_thread_t *dap_thread;
 
-  signal( SIGPIPE, SIG_IGN );
+  #ifndef _WIN32
+    signal( SIGPIPE, SIG_IGN );
+  #endif
 
   if ( count_threads > DAP_MAX_THREADS )
     count_threads = DAP_MAX_THREADS;
@@ -135,7 +152,11 @@ int32_t dap_server_init( uint32_t count_threads )
   memset( dap_thread, 0, sizeof(dap_server_thread_t) * DAP_MAX_THREADS );
 
   for ( uint32_t i = 0; i < _count_threads; ++i, ++dap_thread ) {
-    dap_thread->epoll_fd = -1;
+    #ifndef _WIN32
+      dap_thread->epoll_fd = -1;
+    #else
+      dap_thread->epoll_fd = (void*)-1;
+    #endif
     dap_thread->thread_num = i;
     dap_thread->epoll_events = &threads_epoll_events[ i * epoll_max_events ];
     pthread_mutex_init( &dap_thread->mutex_dlist_add_remove, NULL );
@@ -220,13 +241,19 @@ void dap_server_delete( dap_server_t *sh )
 */
 int32_t set_nonblock_socket( int32_t fd )
 {
+#ifdef _WIN32
+  unsigned long arg = 1;
+  return ioctlsocket( fd, FIONBIO, &arg );
+#else
   int32_t flags;
 
   flags = fcntl( fd, F_GETFL );
   flags |= O_NONBLOCK;
 
   return fcntl( fd, F_SETFL, flags );
+#endif
 }
+
 
 /*
 =========================================================
@@ -289,7 +316,6 @@ dap_client_remote_t  *dap_server_add_socket( int32_t fd, int32_t forced_thread_n
 
   if ( epoll_ctl( dsth->epoll_fd, EPOLL_CTL_ADD, fd, &dcr->pevent) != 0 ) {
     log_it( L_ERROR, "epoll_ctl failed 005" );
-    return 99;
   }
 
   return dcr;
@@ -323,7 +349,7 @@ void  dap_server_remove_socket( dap_client_remote_t *dcr )
   log_it( L_DEBUG, "dcr = %X", dcr );
 }
 
-static void s_socket_info_all_check_activity( uint32_t tn, time_t cur_time )
+static void s_socket_all_check_activity( uint32_t tn, time_t cur_time )
 {
   dap_client_remote_t *dcr, *tmp;
   dap_server_thread_t *dsth = &dap_server_threads[ tn ];
@@ -340,9 +366,7 @@ static void s_socket_info_all_check_activity( uint32_t tn, time_t cur_time )
       if ( epoll_ctl( dcr->efd, EPOLL_CTL_DEL, dcr->socket, &dcr->pevent ) == -1 )
         log_it( L_ERROR,"Can't remove event socket's handler from the epoll_fd" );
 
-      pthread_mutex_lock( &dsth->mutex_dlist_add_remove );
       DL_DELETE( dsth->dap_remote_clients, dcr );
-      dap_client_remote_remove( dcr, _current_run_server );
     }
   }
   pthread_mutex_unlock( &dsth->mutex_dlist_add_remove );
@@ -517,7 +541,7 @@ void  *thread_loop( void *arg )
   dap_server_thread_t *dsth = (dap_server_thread_t *)arg;
 
   uint32_t tn  = dsth->thread_num;
-  int32_t efd = dsth->epoll_fd;
+  EPOLL_HANDLE efd = dsth->epoll_fd;
   struct epoll_event  *events = dsth->epoll_events;
   time_t next_time_timeout_check = time( NULL ) + SOCKETS_TIMEOUT_CHECK_PERIOD;
 
@@ -570,7 +594,7 @@ void  *thread_loop( void *arg )
 
     if ( cur_time >= next_time_timeout_check ) {
 
-      s_socket_info_all_check_activity( tn, cur_time );
+      s_socket_all_check_activity( tn, cur_time );
       next_time_timeout_check = cur_time + SOCKETS_TIMEOUT_CHECK_PERIOD;
     }
 
@@ -598,8 +622,8 @@ int32_t dap_server_loop( dap_server_t *d_server )
 
   for( uint32_t i = 0; i < _count_threads; ++i ) {
 
-    int efd = epoll_create1( 0 );
-    if ( efd == -1 ) {
+    EPOLL_HANDLE efd = epoll_create1( 0 );
+    if ( (intptr_t)efd == -1 ) {
       log_it( L_ERROR, "Server wakeup no events / error" );
         goto error;
     }
@@ -613,8 +637,8 @@ int32_t dap_server_loop( dap_server_t *d_server )
 
   _current_run_server = d_server;
 
-  int32_t efd = epoll_create1( 0 );
-  if ( efd == -1 )
+  EPOLL_HANDLE efd = epoll_create1( 0 );
+  if ( (intptr_t)efd == -1 )
     goto error;
 
   struct epoll_event  pev;
@@ -647,6 +671,7 @@ int32_t dap_server_loop( dap_server_t *d_server )
           log_it( L_ERROR, "accept_cb: error accept socket");
           continue;
         }
+
         set_nonblock_socket( client_fd );
         dap_server_add_socket( client_fd, -1 );
       }
@@ -661,15 +686,23 @@ int32_t dap_server_loop( dap_server_t *d_server )
 
 exit:;
 
-  close( efd );
-
+  #ifndef _WIN32
+    close( efd );
+  #else
+    epoll_close( efd );
+  #endif
 error:;
 
   bQuitSignal = true;
 
   for( uint32_t i = 0; i < _count_threads; ++i ) {
-    if ( dap_server_threads[ i ].epoll_fd != -1 )
-      close( dap_server_threads[ i ].epoll_fd );
+    if ( (intptr_t)dap_server_threads[ i ].epoll_fd != -1 ) {
+      #ifndef _WIN32
+        close( dap_server_threads[ i ].epoll_fd );
+      #else
+        epoll_close( dap_server_threads[ i ].epoll_fd );
+      #endif
+    }
   }
 
   return 0;

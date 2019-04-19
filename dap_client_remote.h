@@ -28,8 +28,18 @@
 #include <stdbool.h>
 #include "uthash.h"
 
+#ifndef WIN32
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
+#endif
+
+#ifndef EPOLL_HANDLE
+  #ifndef WIN32
+    #define EPOLL_HANDLE  int
+  #else
+    #define EPOLL_HANDLE  HANDLE
+  #endif
+#endif
 
 typedef char str_ip[16];
 
@@ -81,7 +91,7 @@ typedef struct dap_client_remote {
   size_t buf_out_size; // size of data that is in the output buffer
   struct epoll_event  pevent;
 
-  int efd;            // Epoll fd
+  EPOLL_HANDLE efd;            // Epoll fd
   int tn;             // working thread index
 
   time_t time_connection;
