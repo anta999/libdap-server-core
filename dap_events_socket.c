@@ -332,8 +332,8 @@ void dap_events_socket_shrink_buf_in( dap_events_socket_t *cl, size_t shrink_siz
   size_t buf_size = cl->buf_in_size - shrink_size;
   void *buf = malloc( buf_size );
 
-  memcpy( buf,cl->buf_in+ shrink_size,buf_size );
-  memcpy( cl->buf_in,buf,buf_size);
+  memcpy( buf, cl->buf_in + shrink_size, buf_size );
+  memcpy( cl->buf_in, buf, buf_size );
 
   cl->buf_in_size = buf_size;
 

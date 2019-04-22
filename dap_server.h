@@ -19,6 +19,7 @@
 */
 #pragma once
 
+#ifndef WIN32
 #include <netinet/in.h>
 
 #include <stdint.h>
@@ -26,18 +27,22 @@
 
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
+#define EPOLL_HANDLE  int
+#else
+#define EPOLL_HANDLE  HANDLE
+#endif
 
 #include "uthash.h"
+#include "utlist.h"
 
 #include "dap_cpu_monitor.h"
 #include "dap_client_remote.h"
 
 typedef enum dap_server_type {DAP_SERVER_TCP} dap_server_type_t;
 
-
 typedef struct dap_server_thread_s {
 
-  int32_t epoll_fd;
+  EPOLL_HANDLE epoll_fd;
   uint32_t thread_num;
   uint32_t connections_count;
 
@@ -61,7 +66,7 @@ typedef struct dap_server {
   dap_client_remote_t * clients; // Hashmap of clients
 
   int32_t socket_listener; // Socket for listener
-  int32_t epoll_fd; // Epoll fd
+  EPOLL_HANDLE epoll_fd; // Epoll fd
 
   struct sockaddr_in listener_addr; // Kernel structure for listener's binded address
 

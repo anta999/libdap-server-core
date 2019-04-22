@@ -219,15 +219,16 @@ void  dap_client_remote_ready_to_write( dap_client_remote_t *sc, bool is_ready )
  * @param data_size Size of data to write
  * @return Number of bytes that were placed into the buffer
  */
-size_t dap_client_remote_write(dap_client_remote_t *sc, const void * data, size_t data_size)
+size_t dap_client_remote_write( dap_client_remote_t *sc, const void * data, size_t data_size )
 {     
-     if(sc->buf_out_size + data_size > sizeof(sc->buf_out) )  {
-         log_it(L_WARNING, "Client buffer overflow. Packet loosed");
-         return 0;
-     }
-     memcpy(sc->buf_out+sc->buf_out_size,data,data_size);
-     sc->buf_out_size += data_size;
-     return data_size;
+  if ( sc->buf_out_size + data_size > sizeof(sc->buf_out) ) {
+    log_it( L_WARNING, "Client buffer overflow. Packet loosed" );
+    return 0;
+  }
+
+  memcpy( sc->buf_out + sc->buf_out_size, data, data_size );
+  sc->buf_out_size += data_size;
+  return data_size;
 }
 
 /**
@@ -236,20 +237,25 @@ size_t dap_client_remote_write(dap_client_remote_t *sc, const void * data, size_
  * @param a_format Format
  * @return Number of bytes that were placed into the buffer
  */
-size_t dap_client_remote_write_f(dap_client_remote_t *a_client, const char * a_format,...)
+size_t dap_client_remote_write_f( dap_client_remote_t *a_client, const char * a_format, ... )
 {
-    size_t max_data_size = sizeof(a_client->buf_out)-a_client->buf_out_size;
-    va_list ap;
-    va_start(ap,a_format);
-    int ret=vsnprintf(a_client->buf_out+a_client->buf_out_size,max_data_size,a_format,ap);
-    va_end(ap);
-    if(ret>0){
-        a_client->buf_out_size += (unsigned long)ret;
-        return (size_t)ret;
-    }else{
-        log_it(L_ERROR,"Can't write out formatted data '%s'",a_format);
-        return 0;
-    }
+  size_t max_data_size = sizeof( a_client->buf_out ) - a_client->buf_out_size;
+
+  va_list ap;
+  va_start( ap, a_format );
+
+  int ret = vsnprintf( a_client->buf_out + a_client->buf_out_size, max_data_size, a_format, ap );
+
+  va_end( ap );
+
+  if( ret > 0 ) {
+    a_client->buf_out_size += (unsigned long)ret;
+    return (size_t)ret;
+  } 
+  else {
+    log_it( L_ERROR, "Can't write out formatted data '%s'", a_format );
+    return 0;
+  }
 }
 
 /**
@@ -259,19 +265,23 @@ size_t dap_client_remote_write_f(dap_client_remote_t *a_client, const char * a_f
  * @param a_data_size Size of data to read
  * @return Actual bytes number that were read
  */
-size_t dap_client_remote_read(dap_client_remote_t *a_client, void * a_data, size_t a_data_size)
+size_t dap_client_remote_read( dap_client_remote_t *a_client, void *a_data, size_t a_data_size )
 {
-    if (a_data_size < a_client->buf_in_size) {
-        memcpy(a_data, a_client->buf_in, a_data_size);
-        memmove(a_data, a_client->buf_in + a_data_size, a_client->buf_in_size - a_data_size);
-    } else {
-        if (a_data_size > a_client->buf_in_size) {
-            a_data_size = a_client->buf_in_size;
-        }
-        memcpy(a_data, a_client->buf_in, a_data_size);
+  if ( a_data_size < a_client->buf_in_size ) {
+
+    memcpy( a_data, a_client->buf_in, a_data_size );
+    memmove( a_client->buf_in, a_client->buf_in + a_data_size, a_client->buf_in_size - a_data_size );
+  } 
+  else {
+    if ( a_data_size > a_client->buf_in_size ) {
+      a_data_size = a_client->buf_in_size;
     }
-    a_client->buf_in_size -= a_data_size;
-    return a_data_size;
+    memcpy( a_data, a_client->buf_in, a_data_size );
+  }
+
+  a_client->buf_in_size -= a_data_size;
+
+  return a_data_size;
 }
 
 
@@ -280,19 +290,26 @@ size_t dap_client_remote_read(dap_client_remote_t *a_client, void * a_data, size
  * @param a_client Client instance
  * @param a_shrink_size Size on wich we shrink the buffer with shifting it left
  */
-void dap_client_remote_shrink_buf_in(dap_client_remote_t * a_client, size_t a_shrink_size)
+void dap_client_remote_shrink_buf_in( dap_client_remote_t *a_client, size_t a_shrink_size )
 {
-    if((a_shrink_size==0)||(a_client->buf_in_size==0) ){
-        return;
-    }else if(a_client->buf_in_size>a_shrink_size){
-        size_t buf_size=a_client->buf_in_size-a_shrink_size;
-        void * buf = malloc(buf_size);
-        memcpy(buf,a_client->buf_in+ a_shrink_size,buf_size );
-        memcpy(a_client->buf_in,buf,buf_size);
-        a_client->buf_in_size=buf_size;
-        free(buf);
-    }else {
-        a_client->buf_in_size=0;
-    }
+  if ( a_shrink_size == 0 || a_client->buf_in_size == 0 )
+    return;
 
+  if ( a_client->buf_in_size > a_shrink_size ) {
+
+    size_t buf_size = a_client->buf_in_size - a_shrink_size;
+    memmove( a_client->buf_in, a_client->buf_in + a_shrink_size, buf_size );
+/**
+    void *buf = malloc( buf_size );
+    memcpy( buf, a_client->buf_in + a_shrink_size, buf_size );
+    memcpy( a_client->buf_in, buf, buf_size );
+    // holy shit
+    a_client->buf_in_size = buf_size;
+    free( buf );
+**/
+    a_client->buf_in_size = buf_size;
+  }
+  else {
+    a_client->buf_in_size = 0;
+  }
 }

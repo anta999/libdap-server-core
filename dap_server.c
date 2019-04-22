@@ -72,8 +72,8 @@
 #define DAP_MAX_THREAD_EVENTS           8192
 #define DAP_MAX_THREADS                 16
 
-#define SOCKET_TIMEOUT_TIME             60
-#define SOCKETS_TIMEOUT_CHECK_PERIOD    5
+#define SOCKET_TIMEOUT_TIME             30
+#define SOCKETS_TIMEOUT_CHECK_PERIOD    15
 
 static uint32_t _count_threads = 0;
 static uint32_t epoll_max_events = 0;
@@ -359,7 +359,7 @@ static void s_socket_all_check_activity( uint32_t tn, time_t cur_time )
   pthread_mutex_lock( &dsth->mutex_dlist_add_remove );
   DL_FOREACH_SAFE( dsth->dap_remote_clients, dcr, tmp ) {
 
-    if ( dcr->last_time_active + SOCKET_TIMEOUT_TIME >= cur_time ) {
+    if ( cur_time >= dcr->last_time_active + SOCKET_TIMEOUT_TIME  ) {
 
       log_it( L_INFO, "Socket %u timeout, closing...", dcr->socket );
 
@@ -367,6 +367,7 @@ static void s_socket_all_check_activity( uint32_t tn, time_t cur_time )
         log_it( L_ERROR,"Can't remove event socket's handler from the epoll_fd" );
 
       DL_DELETE( dsth->dap_remote_clients, dcr );
+      dap_client_remote_remove( dcr, _current_run_server );
     }
   }
   pthread_mutex_unlock( &dsth->mutex_dlist_add_remove );

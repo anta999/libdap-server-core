@@ -228,7 +228,7 @@ static void s_socket_all_check_activity( dap_worker_t *dap_worker, dap_events_t 
   pthread_mutex_lock( &dap_worker->locker_on_count );
   DL_FOREACH_SAFE( d_ev->dlsockets, a_es, tmp ) {
 
-    if ( a_es->last_time_active + s_connection_timeout >= cur_time ) {
+    if ( cur_time >= a_es->last_time_active + s_connection_timeout ) {
 
       log_it( L_INFO, "Socket %u timeout, closing...", a_es->socket );
 
